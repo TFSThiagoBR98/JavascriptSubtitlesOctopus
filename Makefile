@@ -297,17 +297,27 @@ EMCC_COMMON_ARGS = \
 	-s EXPORTED_FUNCTIONS="['_main', '_malloc']" \
 	-s EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap', 'getValue', 'FS_createPreloadedFile', 'FS_createPath', 'FS_createLazyFile']" \
 	-s NO_EXIT_RUNTIME=1 \
-	--use-preload-plugins \
-	--preload-file assets/default.woff2 \
-	--preload-file assets/fonts.conf \
+	-s MALLOC=emmalloc \
 	-s ALLOW_MEMORY_GROWTH=1 \
+	-s INITIAL_MEMORY=67108864 \
+	--embed-file assets/default.woff2 \
+	--embed-file assets/fonts.conf \
 	-s NO_FILESYSTEM=0 \
 	-s ENVIRONMENT=web,webview \
 	-s DOUBLE_MODE=0 \
+	-s EVAL_CTORS=1 \
+	-s TEXTDECODER=2 \
+	-s LEGACY_VM_SUPPORT=0 \
+	-s MIN_CHROME_VERSION=75 \
+	-s MIN_FIREFOX_VERSION=65 \
+	-s MIN_EDGE_VERSION=0x7FFFFFFF \
+	-s MIN_SAFARI_VERSION=120000 \
 	--no-heap-copy \
+	--memory-init-file 0 \
+	-flto \
 	-o $@
 
-dist: src/subtitles-octopus-worker.bc dist/js/subtitles-octopus-worker.js dist/js/subtitles-octopus-worker-legacy.js dist/js/subtitles-octopus.js
+dist: src/subtitles-octopus-worker.bc dist/js/subtitles-octopus-worker.js dist/js/subtitles-octopus.js
 
 dist/js/subtitles-octopus-worker.js: src/subtitles-octopus-worker.bc src/pre-worker.js src/unbrotli.js src/SubOctpInterface.js src/post-worker.js
 	mkdir -p dist/js
@@ -316,20 +326,7 @@ dist/js/subtitles-octopus-worker.js: src/subtitles-octopus-worker.bc src/pre-wor
 		--pre-js src/unbrotli.js \
 		--post-js src/SubOctpInterface.js \
 		--post-js src/post-worker.js \
-		-s WASM=1 \
-		$(EMCC_COMMON_ARGS)
-
-dist/js/subtitles-octopus-worker-legacy.js: src/subtitles-octopus-worker.bc src/pre-worker.js src/unbrotli.js src/SubOctpInterface.js src/post-worker.js
-	mkdir -p dist/js
-	emcc src/subtitles-octopus-worker.bc $(OCTP_DEPS) \
-		--pre-js src/pre-worker.js \
-		--pre-js src/unbrotli.js \
-		--post-js src/SubOctpInterface.js \
-		--post-js src/post-worker.js \
-		-s WASM=0 \
-		-s LEGACY_VM_SUPPORT=1 \
-		-s MIN_CHROME_VERSION=27 \
-		-s MIN_SAFARI_VERSION=60005 \
+		-s WASM=2 \
 		$(EMCC_COMMON_ARGS)
 
 dist/js/subtitles-octopus.js: src/subtitles-octopus.js
