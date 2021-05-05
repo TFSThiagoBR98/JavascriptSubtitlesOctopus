@@ -1,0 +1,31 @@
+name: CI Publish dist
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel previous runs
+        uses: styfle/cancel-workflow-action@0.8.0
+        with:
+          access_token: ${{ github.token }}
+
+      - uses: actions/checkout@v2
+      
+      - name: Checkout submodules
+        shell: bash
+        run: |
+          git submodule sync
+          git submodule update --init --force
+      
+      - name: Build the Docker image
+        run: docker build . --file Dockerfile --tag libass/javascriptsubtitlesoctopus:latest
+      
+      - name: Build All
+        run: docker run --rm -v ${PWD}:/code libass/javascriptsubtitlesoctopus:latest
+      
+      
