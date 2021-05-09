@@ -151,6 +151,7 @@ To use, just run: `brotli subFile.ass` and use the .br result file with the subU
 ### Get the Source
 
 Run `git clone --recursive https://github.com/libass/JavascriptSubtitlesOctopus.git`
+After run `git submodule foreach git submodule update --recursive --force`
 
 ### Build with Docker
 1) Install Docker
