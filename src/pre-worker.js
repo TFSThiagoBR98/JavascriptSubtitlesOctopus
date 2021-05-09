@@ -59,6 +59,7 @@ Module["preRun"].push(function () {
     var i;
 
     Module["FS_createPath"]("/", "fonts", true, true);
+    Module["FS_createPath"]("/", ".fontconfig", true, true);
 
     if (!self.subContent) {
         // We can use sync xhr cause we're inside Web Worker
