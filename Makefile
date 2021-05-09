@@ -4,7 +4,7 @@
 BASE_DIR:=$(dir $(realpath $(firstword $(MAKEFILE_LIST))))
 DIST_DIR:=$(BASE_DIR)dist/libraries
 
-GLOBAL_CFLAGS:=-O3
+GLOBAL_CFLAGS:=-O3 -s ENVIRONMENT=web,webview -s DOUBLE_MODE=0
 
 all: subtitleoctopus
 
@@ -293,12 +293,10 @@ EMCC_COMMON_ARGS = \
 	--preload-file assets/fonts.conf \
 	-s ALLOW_MEMORY_GROWTH=1 \
 	-s NO_FILESYSTEM=0 \
+	-s ENVIRONMENT=web,webview \
+	-s DOUBLE_MODE=0 \
 	--no-heap-copy \
 	-o $@
-	#--js-opts 0 -g4 \
-	#--closure 1 \
-	#--memory-init-file 0 \
-	#-s OUTLINING_LIMIT=20000 \
 
 dist: src/subtitles-octopus-worker.bc dist/js/subtitles-octopus-worker.js dist/js/subtitles-octopus-worker-legacy.js dist/js/subtitles-octopus.js
 
@@ -321,6 +319,8 @@ dist/js/subtitles-octopus-worker-legacy.js: src/subtitles-octopus-worker.bc src/
 		--post-js src/post-worker.js \
 		-s WASM=0 \
 		-s LEGACY_VM_SUPPORT=1 \
+		-s MIN_CHROME_VERSION=27 \
+		-s MIN_SAFARI_VERSION=60005 \
 		$(EMCC_COMMON_ARGS)
 
 dist/js/subtitles-octopus.js: src/subtitles-octopus.js

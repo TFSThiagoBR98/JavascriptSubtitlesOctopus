@@ -7,6 +7,16 @@ if (!String.prototype.endsWith) {
 	};
 }
 
+if (!Uint8Array.prototype.slice) {
+    Object.defineProperty(Uint8Array.prototype, 'slice', {
+        value: function (begin, end)
+            {
+                return new Uint8Array(this.subarray(begin, end));
+            }
+    });
+}
+
+
 var hasNativeConsole = typeof console !== "undefined";
 
 // implement console methods if they're missing
@@ -93,13 +103,9 @@ Module['onRuntimeInitialized'] = function () {
     self.octObj = new Module.SubtitleOctopus();
 
     self.changed = Module._malloc(4);
-    self.blendTime = Module._malloc(8);
-    self.blendX = Module._malloc(4);
-    self.blendY = Module._malloc(4);
-    self.blendW = Module._malloc(4);
-    self.blendH = Module._malloc(4);
 
     self.octObj.initLibrary(screen.width, screen.height);
+    self.octObj.setDropAnimations(!!self.dropAllAnimations);
     self.octObj.createTrack("/sub.ass");
     self.ass_track = self.octObj.track;
     self.ass_library = self.octObj.ass_library;

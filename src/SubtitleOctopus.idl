@@ -155,14 +155,27 @@ interface libass {
 };
 
 [NoDelete]
-interface RenderBlendResult {
-    attribute long changed;
-    attribute double blend_time;
+interface RenderBlendPart {
     attribute long dest_x;
     attribute long dest_y;
     attribute long dest_width;
     attribute long dest_height;
     attribute ByteString image;
+    attribute RenderBlendPart next;
+};
+
+[NoDelete]
+interface RenderBlendResult {
+    attribute long changed;
+    attribute double blend_time;
+    attribute RenderBlendPart part;
+};
+
+[NoDelete]
+interface EventStopTimesResult {
+    attribute double eventFinish;
+    attribute double emptyFinish;
+    attribute long is_animated;
 };
 
 interface SubtitleOctopus {
@@ -171,6 +184,8 @@ interface SubtitleOctopus {
     attribute ASS_Renderer ass_renderer;
     attribute ASS_Library ass_library;
     void setLogLevel(long level);
+    void setDropAnimations(long value);
+    long getDropAnimations();
     void initLibrary(long frame_w, long frame_h);
     void createTrack(DOMString subfile);
     void createTrackMem(DOMString buf, unsigned long bufsize);
@@ -191,4 +206,7 @@ interface SubtitleOctopus {
     void removeAllEvents();
     void setMemoryLimits(long glyph_limit, long bitmap_cache_limit);
     RenderBlendResult renderBlend(double tm, long force);
+    double findNextEventStart(double tm);
+    EventStopTimesResult findEventStopTimes(double tm);
+    void rescanAllAnimations();
 };

@@ -8,6 +8,8 @@ self.nextIsRaf = false;
 self.lastCurrentTimeReceivedAt = Date.now();
 self.targetFps = 30;
 self.libassMemoryLimit = 0; // in MiB
+self.renderOnDemand = false; // determines if only rendering on demand
+self.dropAllAnimations = false; // set to true to enable "lite mode" with all animations disabled for speed
 
 self.width = 0;
 self.height = 0;
@@ -21,11 +23,11 @@ self.fontId = 0;
  */
 self.writeFontToFS = function(font) {
     font = font.trim().toLowerCase();
-    
+
     if (font.startsWith("@")) {
         font = font.substr(1);
     }
-    
+
     if (self.fontMap_.hasOwnProperty(font)) return;
 
     self.fontMap_[font] = true;
@@ -33,7 +35,7 @@ self.writeFontToFS = function(font) {
     if (!self.availableFonts.hasOwnProperty(font)) return;
     var content = readBinary(self.availableFonts[font]);
 
-    Module["FS"].writeFile('/fonts/font' + (self.fontId++) + '-' + self.availableFonts[font].split('/').pop(), content, { 
+    Module["FS"].writeFile('/fonts/font' + (self.fontId++) + '-' + self.availableFonts[font].split('/').pop(), content, {
         encoding: 'binary'
     });
 };
@@ -54,7 +56,7 @@ self.writeAvailableFontsToFS = function(content) {
             }
         }
     }
-    
+
     var regex = /\\fn([^\\}]*?)[\\}]/g;
     var matches;
     while (matches = regex.exec(self.subContent)) {
@@ -86,7 +88,9 @@ self.setTrack = function (content) {
     // Tell libass to render the new track
     self.octObj.createTrack("/sub.ass");
     self.ass_track = self.octObj.track;
-    self.getRenderMethod()();
+    if (!self.renderOnDemand) {
+        self.getRenderMethod()();
+    }
 };
 
 /**
@@ -94,7 +98,9 @@ self.setTrack = function (content) {
  */
 self.freeTrack = function () {
     self.octObj.removeTrack();
-    self.getRenderMethod()();
+    if (!self.renderOnDemand) {
+        self.getRenderMethod()();
+    }
 };
 
 /**
@@ -135,11 +141,15 @@ self.setCurrentTime = function (currentTime) {
     self.lastCurrentTimeReceivedAt = Date.now();
     if (!self.rafId) {
         if (self.nextIsRaf) {
-            self.rafId = self.requestAnimationFrame(self.getRenderMethod());
+            if (!self.renderOnDemand) {
+                self.rafId = self.requestAnimationFrame(self.getRenderMethod());
+            }
         }
         else {
-            self.getRenderMethod()();
-            
+            if (!self.renderOnDemand) {
+                self.getRenderMethod()();
+            }
+
             // Give onmessage chance to receive all queued messages
             setTimeout(function () {
                 self.nextIsRaf = false;
@@ -163,7 +173,9 @@ self.setIsPaused = function (isPaused) {
         }
         else {
             self.lastCurrentTimeReceivedAt = Date.now();
-            self.rafId = self.requestAnimationFrame(self.getRenderMethod());
+            if (!self.renderOnDemand) {
+                self.rafId = self.requestAnimationFrame(self.getRenderMethod());
+            }
         }
     }
 };
@@ -191,34 +203,82 @@ self.render = function (force) {
     }
 };
 
+self.blendRenderTiming = function (timing, force) {
+    var startTime = performance.now();
+
+    var renderResult = self.octObj.renderBlend(timing, force);
+    var blendTime = renderResult.blend_time;
+    var canvases = [], buffers = [];
+    if (renderResult.ptr != 0 && (renderResult.changed != 0 || force)) {
+        // make a copy, as we should free the memory so subsequent calls can utilize it
+        for (var part = renderResult.part; part.ptr != 0; part = part.next) {
+            var result = new Uint8Array(HEAPU8.subarray(part.image, part.image + part.dest_width * part.dest_height * 4));
+            canvases.push({w: part.dest_width, h: part.dest_height, x: part.dest_x, y: part.dest_y, buffer: result.buffer});
+            buffers.push(result.buffer);
+        }
+    }
+
+    return {
+        time: Date.now(),
+        spentTime: performance.now() - startTime,
+        blendTime: blendTime,
+        canvases: canvases,
+        buffers: buffers
+    }
+}
+
 self.blendRender = function (force) {
     self.rafId = 0;
     self.renderPending = false;
-    var startTime = performance.now();
 
-    var renderResult = self.octObj.renderBlend(self.getCurrentTime() + self.delay, force);
-    var blendTime = Module.getValue(self.blendTime, 'double');
-    if (renderResult && (renderResult.changed != 0 || force)) {
-        // make a copy, as we should free the memory so subsequent calls can utilize it
-        var result = new Uint8Array(HEAPU8.subarray(renderResult.image, renderResult.image + renderResult.dest_width * renderResult.dest_height * 4));
-
-        var canvases = [{w: renderResult.dest_width, h: renderResult.dest_height, x: renderResult.dest_x, y: renderResult.dest_y, buffer: result.buffer}];
-        var buffers = [result.buffer];
-
+    var rendered = self.blendRenderTiming(self.getCurrentTime() + self.delay, force);
+    if (rendered.canvases.length > 0) {
         postMessage({
             target: 'canvas',
             op: 'renderCanvas',
-            time: Date.now(),
-            spentTime: performance.now() - startTime,
-            blendTime: blendTime,
-            canvases: canvases
-        }, buffers);
+            time: rendered.time,
+            spentTime: rendered.spentTime,
+            blendTime: rendered.blendTime,
+            canvases: rendered.canvases
+        }, rendered.buffers);
     }
 
     if (!self._isPaused) {
         self.rafId = self.requestAnimationFrame(self.blendRender);
     }
 };
+
+self.oneshotRender = function (lastRenderedTime, renderNow, iteration) {
+    var eventStart = renderNow ? lastRenderedTime : self.octObj.findNextEventStart(lastRenderedTime);
+    var eventFinish = -1.0, emptyFinish = -1.0, animated = false;
+    var rendered = {};
+    if (eventStart >= 0) {
+        eventTimes = self.octObj.findEventStopTimes(eventStart);
+        eventFinish = eventTimes.eventFinish;
+        emptyFinish = eventTimes.emptyFinish;
+        animated = eventTimes.is_animated;
+
+        rendered = self.blendRenderTiming(eventStart, true);
+    }
+
+    postMessage({
+        target: 'canvas',
+        op: 'oneshot-result',
+        iteration: iteration,
+        lastRenderedTime: lastRenderedTime,
+        eventStart: eventStart,
+        eventFinish: eventFinish,
+        emptyFinish: emptyFinish,
+        animated: animated,
+        viewport: {
+            width: self.width,
+            height: self.height
+        },
+        spentTime: rendered.spentTime || 0,
+        blendTime: rendered.blendTime || 0,
+        canvases: rendered.canvases || []
+    }, rendered.buffers || []);
+}
 
 self.fastRender = function (force) {
     self.rafId = 0;
@@ -469,6 +529,14 @@ function messageResender() {
     }
 }
 
+function _applyKeys(input, output) {
+    var vargs = Object.keys(input);
+
+    for (var i = 0; i < vargs.length; i++) {
+        output[vargs[i]] = input[vargs[i]];
+    }
+}
+
 function onMessageFromMainEmscriptenThread(message) {
     if (!calledMain && !message.data.preMain) {
         if (!messageBuffer) {
@@ -496,7 +564,9 @@ function onMessageFromMainEmscriptenThread(message) {
                     Module.canvas.boundingClientRect = message.data.boundingClientRect;
                 }
                 self.resize(message.data.width, message.data.height);
-                self.getRenderMethod()();
+                if (!self.renderOnDemand) {
+                    self.getRenderMethod()();
+                }
             } else throw 'ey?';
             break;
         }
@@ -540,12 +610,19 @@ function onMessageFromMainEmscriptenThread(message) {
             self.targetFps = message.data.targetFps || self.targetFps;
             self.libassMemoryLimit = message.data.libassMemoryLimit || self.libassMemoryLimit;
             self.libassGlyphLimit = message.data.libassGlyphLimit || 0;
+            self.renderOnDemand = message.data.renderOnDemand || false;
+            self.dropAllAnimations = message.data.dropAllAnimations || false;
             removeRunDependency('worker-init');
             postMessage({
                 target: "ready",
             });
             break;
         }
+        case 'oneshot-render':
+            self.oneshotRender(message.data.lastRendered,
+                    message.data.renderNow || false,
+                    message.data.iteration);
+            break;
         case 'destroy':
             self.octObj.quitLibrary();
             break;
@@ -562,11 +639,7 @@ function onMessageFromMainEmscriptenThread(message) {
             var event = message.data.event;
             var i = self.octObj.allocEvent();
             var evnt_ptr = self.octObj.track.get_events(i);
-            var vargs = Object.keys(event);
-
-            for (const varg of vargs) {
-                evnt_ptr[varg] = event[varg];
-            }
+            _applyKeys(event, evnt_ptr);
             break;
         case 'get-events':
             var events = [];
@@ -598,12 +671,7 @@ function onMessageFromMainEmscriptenThread(message) {
             var event = message.data.event;
             var i = message.data.index;
             var evnt_ptr = self.octObj.track.get_events(i);
-            
-            var vargs = Object.keys(event);
-
-            for (const varg of vargs) {
-                evnt_ptr[varg] = event[varg];
-            }
+            _applyKeys(event, evnt_ptr);
             break;
         case 'remove-event':
             var i = message.data.index;
@@ -613,11 +681,7 @@ function onMessageFromMainEmscriptenThread(message) {
             var style = message.data.style;
             var i = self.octObj.allocStyle();
             var styl_ptr = self.octObj.track.get_styles(i);
-            var vargs = Object.keys(style);
-
-            for (const varg of vargs) {
-                styl_ptr[varg] = style[varg];
-            }
+            _applyKeys(style, styl_ptr);
             break;
         case 'get-styles':
             var styles = [];
@@ -663,11 +727,7 @@ function onMessageFromMainEmscriptenThread(message) {
             var style = message.data.style;
             var i = message.data.index;
             var styl_ptr = self.octObj.track.get_styles(i);
-            var vargs = Object.keys(style);
-
-            for (const varg of vargs) {
-                styl_ptr[varg] = style[varg];
-            }
+            _applyKeys(style, styl_ptr);
             break;
         case 'remove-style':
             var i = message.data.index;
