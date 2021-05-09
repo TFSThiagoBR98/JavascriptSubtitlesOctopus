@@ -299,6 +299,7 @@ EMCC_COMMON_ARGS = \
 	-s NO_EXIT_RUNTIME=1 \
 	-s MALLOC=emmalloc \
 	-s ALLOW_MEMORY_GROWTH=1 \
+	--use-preload-plugins \
 	-s INITIAL_MEMORY=67108864 \
 	--embed-file assets/default.woff2 \
 	--embed-file assets/fonts.conf \
